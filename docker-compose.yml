@@ -1,6 +1,6 @@
 services:
   ubuntu_test:
-    image: ubuntu:latest       # Use the latest Ubuntu image
+    image: ubuntu-custom      # Use the latest Ubuntu image
     container_name: ubuntu_container  # Name the container
     tty: true                  # Keep the container running for interactive use
     stdin_open: true           # Enable interactive shell
