@@ -256,11 +256,15 @@ manage_groups() {
         fi
         ;;
       2)
-        group_name=$(dialog --inputbox "Enter the group name to delete:" 10 50 2>&1 >/dev/tty)
-        if [ $? -ne 0 ] || [ -z "$group_name" ]; then
-          dialog --msgbox "Group deletion canceled or invalid input." 8 50
+        # Delete a Group using fzf for selection
+        group_list=$(getent group | awk -F: '$3 >= 1000 && $1 != "nogroup" && $1 != "ubuntu" {print $1}')
+        group_name=$(echo "$group_list" | fzf --prompt="Select a group to delete (Press Ctrl+C to cancel): " --height=40% --reverse --border)
+        
+        if [ -z "$group_name" ]; then
+          dialog --msgbox "No group selected. Operation canceled." 8 50
           continue
         fi
+        
         if groupdel "$group_name"; then
           dialog --msgbox "Group '$group_name' deleted successfully." 8 50
           log_action "Group '$group_name' deleted."
@@ -286,7 +290,7 @@ manage_groups() {
 
         # Generate exclusion regex for groups if needed (optional)
         # Currently, we're listing all non-system groups (GID >=1000)
-        group_list=$(awk -F: '$3 >= 1000 {print $1}' /etc/group)
+        group_list=$(awk -F: '$3 >= 1000 && $1 != "nogroup" && $1 != "ubuntu" {print $1}' /etc/group)
 
         if [ -z "$group_list" ]; then
           dialog --msgbox "No non-system groups available to add." 8 50
@@ -313,24 +317,23 @@ manage_groups() {
         ;;
       4)
         # Remove User from a Group
-        username=$(dialog --inputbox "Enter the username:" 10 50 2>&1 >/dev/tty)
-        if [ $? -ne 0 ] || [ -z "$username" ]; then
-          dialog --msgbox "Operation canceled or invalid username." 8 50
+        # Use fzf to select a user
+        user_list=$(awk -F: '$3 >= 1000 && $1 !~ ("^(root|ubuntu|nobody)$") {print $1}' /etc/passwd)
+        username=$(echo "$user_list" | fzf --prompt="Select a user to remove from a group (Press Ctrl+C to cancel): " --height=40% --reverse --border)
+        if [ -z "$username" ]; then
+          dialog --msgbox "No user selected. Operation canceled." 8 50
           continue
         fi
 
-        # Check if user exists
-        if ! id -u "$username" >/dev/null 2>&1; then
-          dialog --msgbox "User '$username' does not exist." 8 50
+        # Use fzf to select a group
+        group_list=$(getent group | awk -F: '$3 >= 1000 && $1 != "nogroup" && $1 != "ubuntu" {print $1}')
+        group_name=$(echo "$group_list" | fzf --prompt="Select a group to remove '$username' from (Press Ctrl+C to cancel): " --height=40% --reverse --border)
+        if [ -z "$group_name" ]; then
+          dialog --msgbox "No group selected. Operation canceled." 8 50
           continue
         fi
 
-        group_name=$(dialog --inputbox "Enter the group to remove the user from:" 10 50 2>&1 >/dev/tty)
-        if [ $? -ne 0 ] || [ -z "$group_name" ]; then
-          dialog --msgbox "Operation canceled or invalid group name." 8 50
-          continue
-        fi
-
+        # Remove user from the selected group
         if gpasswd -d "$username" "$group_name"; then
           dialog --msgbox "User '$username' removed from group '$group_name'." 8 50
           log_action "User '$username' removed from group '$group_name'."
@@ -341,7 +344,7 @@ manage_groups() {
         ;;
       5)
         # List Groups and Details excluding system groups
-        group_list=$(awk -F: '$3 >= 1000 {print "Group Name: "$1"\nGroup ID: "$3"\nMembers: "$4"\n"}' /etc/group | sed 's/$/\\n/')
+        group_list=$(awk -F: '$3 >= 1000 && $1 != "nogroup" && $1 != "ubuntu" {print "Group Name: "$1"\nGroup ID: "$3"\nMembers: "$4"\n"}' /etc/group | sed 's/$/\\n/')
         if [ -z "$group_list" ]; then
           dialog --msgbox "No non-system groups found." 8 50
         else
@@ -365,8 +368,7 @@ manage_groups() {
 # Main menu
 while true; do
   choice=$(dialog --clear --backtitle "User Manager" --title "Main Menu" \
-    --msgbox "Manage system users and groups with ease." 6 50 \
-    --nocancel --menu "Choose an action:" 20 60 6 \
+    --menu "Manage system users and groups with ease.\nChoose an action:" 20 60 6 \
     1 "Create a User" \
     2 "Delete a User" \
     3 "List All Users" \
