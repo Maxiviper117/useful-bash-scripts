@@ -1,0 +1,15 @@
+services:
+  ubuntu_test:
+    image: ubuntu:latest       # Use the latest Ubuntu image
+    container_name: ubuntu_container  # Name the container
+    tty: true                  # Keep the container running for interactive use
+    stdin_open: true           # Enable interactive shell
+    volumes:                   # Use a named volume for persistent data
+      # - important_data:/data   # Commented out volume mapping
+      - ./src:/testSrc           # Map local ./test folder to /test in container
+
+# volumes:                    # Commented out volume definition
+#   important_data:              # Define a named volume
+#     driver: local              # Use the local volume driver (default)
+
+# docker compose up -d
