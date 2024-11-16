@@ -9,7 +9,7 @@ To download and execute a specific bash script from this repository, use the `cu
 To fetch and execute the `userManager.sh` script, run the following command in your terminal:
 
 ```bash
-curl -s https://raw.githubusercontent.com/Maxiviper117/useful-bash-scripts/src/user-management/userManager.sh | bash
+curl -s https://raw.githubusercontent.com/Maxiviper117/useful-bash-scripts/src/user-manager.sh | bash
 ```
 
 ### Command Breakdown
