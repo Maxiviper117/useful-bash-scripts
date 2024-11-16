@@ -365,6 +365,7 @@ manage_groups() {
 # Main menu
 while true; do
   choice=$(dialog --clear --backtitle "User Manager" --title "Main Menu" \
+    --msgbox "Manage system users and groups with ease." 6 50 \
     --nocancel --menu "Choose an action:" 20 60 6 \
     1 "Create a User" \
     2 "Delete a User" \

@@ -140,7 +140,7 @@ check_and_install_packages
 # Main menu
 while true; do
   choice=$(dialog --clear --backtitle "SSH Key Manager" --title "Main Menu" \
-    --nocancel --menu "Choose an action:" 15 60 3 \
+    --nocancel --menu "Choose an action:\nManage SSH keys for users easily." 15 60 3 \
     1 "Add SSH Key to User" \
     2 "Exit" \
     2>&1 >/dev/tty)
