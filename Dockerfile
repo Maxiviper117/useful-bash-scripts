@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     bash \
     unzip \
     sudo \
+    openssh-server \
     adduser \ 
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -22,3 +23,5 @@ RUN apt-get update && apt-get install -y \
 CMD ["bash"]
 
 # docker build -t ubuntu-custom .
+# Interactive mode
+# docker run -it ubuntu-custom bash
