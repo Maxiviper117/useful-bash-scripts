@@ -52,10 +52,24 @@ generate_user_exclusion_regex() {
 # Check and install required packages
 check_and_install_packages
 
+# Define maximum width and height
+MAX_WIDTH=100
+MAX_HEIGHT=40
+
 # Function to handle terminal resize
 handle_resize() {
   TERM_WIDTH=$(tput cols)
   TERM_HEIGHT=$(tput lines)
+  
+  # Set TERM_WIDTH to the lesser of current width and MAX_WIDTH
+  if [ "$TERM_WIDTH" -gt "$MAX_WIDTH" ]; then
+    TERM_WIDTH=$MAX_WIDTH
+  fi
+  
+  # Set TERM_HEIGHT to the lesser of current height and MAX_HEIGHT
+  if [ "$TERM_HEIGHT" -gt "$MAX_HEIGHT" ]; then
+    TERM_HEIGHT=$MAX_HEIGHT
+  fi
 }
 
 # Trap the SIGWINCH signal to handle window resize
@@ -185,13 +199,14 @@ list_users() {
   detailed_list=""
   for username in $user_list; do
     uid=$(id -u "$username")
+    gid=$(id -g "$username")  # Added line to get GID
     home_dir=$(eval echo "~$username")
     groups=$(id -Gn "$username")
-    detailed_list+="Username: $username\nUID: $uid\nHome Directory: $home_dir\nGroups: $groups\n\n"
+    detailed_list+="Username: $username\nUID: $uid\nGID: $gid\nHome Directory: $home_dir\nGroups: $groups\n\n"
   done
 
   # Display in dialog
-  dialog --msgbox "List of non-system users:\n\n$detailed_list" 25 80
+  dialog --msgbox "List of non-system users:\n\n$detailed_list" $((TERM_HEIGHT - 5)) $((TERM_WIDTH - 20))
 }
 
 # Function to search for a user using fzf, excluding specific users
@@ -221,7 +236,7 @@ search_user() {
     details=$(id "$username")
     home_dir=$(eval echo "~$username")
     disk_usage=$(du -sh "$home_dir" 2>/dev/null | awk '{print $1}')
-    dialog --msgbox "Details for user '$username':\n\n$details\nHome Directory: $home_dir\nDisk Usage: ${disk_usage:-N/A}" 15 80
+    dialog --msgbox "Details for user '$username':\n\n$details\nHome Directory: $home_dir\nDisk Usage: ${disk_usage:-N/A}" $((TERM_HEIGHT / 2)) $((TERM_WIDTH - 20))
   else
     dialog --msgbox "User '$username' not found." 8 50
   fi
@@ -230,7 +245,7 @@ search_user() {
 # Function to manage groups
 manage_groups() {
   while true; do
-    choice=$(dialog --menu "Group Management Options:" 15 60 7 \
+    choice=$(dialog --menu "Group Management Options:" $((TERM_HEIGHT - 10)) $((TERM_WIDTH - 20)) 7 \
       1 "Create a Group" \
       2 "Delete a Group" \
       3 "Add User to a Group" \
@@ -367,8 +382,8 @@ manage_groups() {
 
 # Main menu
 while true; do
-  choice=$(dialog --clear --backtitle "User Manager" --title "Main Menu" \
-    --menu "Manage system users and groups with ease.\nChoose an action:" 20 60 6 \
+  choice=$(dialog --clear --no-cancel --backtitle "User Manager" --title "Main Menu" \
+    --menu "Manage system users and groups with ease.\nChoose an action:" $((TERM_HEIGHT - 5)) $((TERM_WIDTH - 10)) 6 \
     1 "Create a User" \
     2 "Delete a User" \
     3 "List All Users" \
