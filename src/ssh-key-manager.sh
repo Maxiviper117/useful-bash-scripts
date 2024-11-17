@@ -1,30 +1,48 @@
 #!/bin/bash
 
-# Log file
-LOG_FILE="/var/log/ssh_key_manager.log"
-
-# Excluded users
-EXCLUDED_USERS=("root" "ubuntu" "nobody")
-
 # Ensure the script is run as root
 if [ "$EUID" -ne 0 ]; then
   echo "This script must be run as root. Exiting..."
   exit 1
 fi
 
+# Log file
+LOG_FILE="/var/log/ssh_key_manager.log"
+
+# Ensure the log file exists and set correct permissions
+if [ ! -f "$LOG_FILE" ]; then
+  touch "$LOG_FILE"
+  chmod 644 "$LOG_FILE"
+  chown root:root "$LOG_FILE"
+fi
+
+# Ensure the log file is writable
+if [ ! -w "$LOG_FILE" ]; then
+  echo "Cannot write to log file $LOG_FILE. Check permissions. Exiting..."
+  exit 1
+fi
+
+# Excluded users
+EXCLUDED_USERS=("root" "ubuntu" "nobody")
+
 # Function to log actions
 log_action() {
-  # Ensure the log file is writable
-  if [ ! -w "$LOG_FILE" ]; then
-    echo "Cannot write to log file $LOG_FILE. Check permissions. Exiting..."
-    exit 1
-  fi
   echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >>"$LOG_FILE"
 }
 
+# Function to handle SIGINT (Ctrl+c)
+handle_sigint() {
+  log_action "Script terminated by user using Ctrl+c."
+  clear
+  exit 1
+}
+
+# Trap SIGINT (Ctrl+c) and call handle_sigint
+trap 'handle_sigint' SIGINT
+
 # Function to check and install required packages
 check_and_install_packages() {
-  required_packages=("dialog" "curl" "sudo" "passwd" "adduser" "fzf")
+  required_packages=("dialog" "curl" "sudo" "passwd" "adduser" "fzf" "openssh-server")
   missing_packages=()
 
   for package in "${required_packages[@]}"; do
@@ -38,8 +56,10 @@ check_and_install_packages() {
     apt update && apt install -y "${missing_packages[@]}"
     if [ $? -ne 0 ]; then
       echo "Failed to install required packages. Exiting..."
+      log_action "Failed to install required packages: ${missing_packages[*]}"
       exit 1
     fi
+    log_action "Installed missing packages: ${missing_packages[*]}"
   fi
 }
 
@@ -113,6 +133,7 @@ add_ssh_key() {
     fi
     chmod 700 "$ssh_dir"
     chown "$username":"$username" "$ssh_dir"
+    log_action "Created .ssh directory for user '$username'."
   elif [ ! -w "$ssh_dir" ]; then
     dialog --msgbox ".ssh directory for '$username' is not writable." 8 50
     log_action ".ssh directory is not writable for user '$username'."
@@ -122,7 +143,7 @@ add_ssh_key() {
   touch "$authorized_keys"
   chmod 600 "$authorized_keys"
 
-  # Add the key and ensure no duplicates
+  # Add the SSH key and ensure no duplicates
   if grep -qF "$ssh_key" "$authorized_keys"; then
     dialog --msgbox "The SSH key already exists for '$username'." 8 50
     log_action "SSH key already exists for user '$username'."
@@ -134,21 +155,158 @@ add_ssh_key() {
   fi
 }
 
+# Function to manage /etc/ssh/sshd_config settings
+manage_sshd_config() {
+  config_file="/etc/ssh/sshd_config"
+
+  # Ensure the config file is writable
+  if [ ! -w "$config_file" ]; then
+    dialog --msgbox "Cannot write to $config_file. Check permissions. Exiting..." 8 50
+    log_action "Cannot write to $config_file. Check permissions."
+    return
+  fi
+
+  # Backup the sshd_config before making changes
+  cp "$config_file" "${config_file}.bak_$(date '+%Y%m%d%H%M%S')"
+  if [ $? -eq 0 ]; then
+    log_action "Backup of sshd_config created."
+  else
+    dialog --msgbox "Failed to create backup of sshd_config. Exiting..." 8 50
+    log_action "Failed to create backup of sshd_config."
+    return
+  fi
+
+  # Function to uncomment a configuration line if it's commented
+  uncomment_config() {
+    local config_option="$1"
+    sed -i "s/^#\s*\(${config_option}\).*/\1/" "$config_file"
+  }
+
+  # Uncomment relevant configuration lines
+  uncomment_config "PermitRootLogin"
+  uncomment_config "PasswordAuthentication"
+
+  while true; do
+    config_choice=$(dialog --clear --backtitle "SSH Key Manager" --title "Manage sshd_config" \
+      --nocancel --menu "Choose an action:\nPress Ctrl+c to exit immediately." 20 70 3 \
+      1 "PermitRootLogin" \
+      2 "PasswordAuthentication" \
+      3 "Back to Main Menu" \
+      2>&1 >/dev/tty)
+
+    case "$config_choice" in
+      1)
+        # Get current value
+        current_value=$(grep -E "^\s*PermitRootLogin" "$config_file" | tail -n 1 | awk '{print $2}')
+
+        # Define options based on possible values
+        # PermitRootLogin options: yes, no, prohibit-password
+        new_value=$(dialog --radiolist "Current value: ${current_value:-not set}\nSelect new value for PermitRootLogin:\nPress Space to select, Enter to confirm." 15 60 4 \
+          "yes" "Permit root login" $( [ "$current_value" = "yes" ] && echo "on" || echo "off") \
+          "no" "Do not permit root login" $( [ "$current_value" = "no" ] && echo "on" || echo "off") \
+          "prohibit-password" "Prohibit password login" $( [ "$current_value" = "prohibit-password" ] && echo "on" || echo "off") \
+          2>&1 >/dev/tty)
+
+        if [ $? -eq 0 ] && [ -n "$new_value" ]; then
+          sed -i "s/^\s*PermitRootLogin.*/PermitRootLogin $new_value/" "$config_file"
+          # Ensure the new setting exists
+          if ! grep -q "PermitRootLogin $new_value" "$config_file"; then
+            echo "PermitRootLogin $new_value" >> "$config_file"
+          fi
+          log_action "Updated PermitRootLogin to $new_value"
+          dialog --msgbox "PermitRootLogin updated to '$new_value'." 8 50
+        fi
+        ;;
+      2)
+        # Get current value
+        current_value=$(grep -E "^\s*PasswordAuthentication" "$config_file" | tail -n 1 | awk '{print $2}')
+
+        # Check if current_value is 'yes' or 'no'
+        if [[ "$current_value" != "yes" && "$current_value" != "no" ]]; then
+          # Set default value to 'yes' if not set
+          if [ -z "$current_value" ]; then
+            default_value="yes"
+            sed -i "/^\s*PasswordAuthentication/d" "$config_file"
+            echo "PasswordAuthentication yes" >> "$config_file"
+            current_value="yes"
+            log_action "Set default PasswordAuthentication to 'yes' as it was not previously set."
+          else
+            # If the value is set to something else, you might want to handle it
+            # For simplicity, we'll set it to 'yes'
+            default_value="yes"
+            sed -i "s/^\s*PasswordAuthentication.*/PasswordAuthentication yes/" "$config_file"
+            current_value="yes"
+            log_action "Set PasswordAuthentication to 'yes' as it had an invalid value."
+          fi
+        else
+          default_value="$current_value"
+        fi
+
+        # Define options: yes, no
+        new_value=$(dialog --radiolist "Current value: $current_value\nSelect new value for PasswordAuthentication:\nPress Space to select, Enter to confirm." 12 60 2 \
+          "yes" "Permit password authentication" $( [ "$current_value" = "yes" ] && echo "on" || echo "off") \
+          "no" "Do not permit password authentication" $( [ "$current_value" = "no" ] && echo "on" || echo "off") \
+          2>&1 >/dev/tty)
+
+        if [ $? -eq 0 ] && [ -n "$new_value" ]; then
+          sed -i "s/^\s*PasswordAuthentication.*/PasswordAuthentication $new_value/" "$config_file"
+          # Ensure the new setting exists
+          if ! grep -q "PasswordAuthentication $new_value" "$config_file"; then
+            echo "PasswordAuthentication $new_value" >> "$config_file"
+          fi
+          log_action "Updated PasswordAuthentication to $new_value"
+          dialog --msgbox "PasswordAuthentication updated to '$new_value'." 8 50
+        fi
+        ;;
+      3) break ;;
+      *) dialog --msgbox "Invalid option. Please try again." 8 50 ;;
+    esac
+  done
+
+  # *** Begin: Conditional SSH Service Restart ***
+  # Check if sshd service is running
+  if systemctl is-active --quiet sshd; then
+    # Validate SSH configuration
+    sshd -t
+    if [ $? -eq 0 ]; then
+      # Restart SSH service to apply changes
+      systemctl restart sshd
+      if [ $? -eq 0 ]; then
+        log_action "sshd service restarted successfully."
+        dialog --msgbox "SSH service restarted successfully to apply changes." 8 50
+      else
+        log_action "Failed to restart sshd service."
+        dialog --msgbox "Failed to restart SSH service. Please check the configuration." 8 50
+      fi
+    else
+      log_action "Invalid SSH configuration. Changes not applied."
+      dialog --msgbox "Invalid SSH configuration. Please review the changes." 8 50
+    fi
+  else
+    # SSH service is not running; do not attempt to restart
+    log_action "sshd service is not running. Skipped restart."
+    dialog --msgbox "sshd service is not running. Skipped restart." 8 50
+  fi
+  # *** End: Conditional SSH Service Restart ***
+}
+
 # Ensure required packages are installed
 check_and_install_packages
 
 # Main menu
 while true; do
   choice=$(dialog --clear --backtitle "SSH Key Manager" --title "Main Menu" \
-    --nocancel --menu "Choose an action:\nManage SSH keys for users easily." 15 60 3 \
+    --nocancel --menu "Choose an action:\nManage SSH keys for users easily.\n\nPress Ctrl+c to exit immediately." 20 70 3 \
     1 "Add SSH Key to User" \
-    2 "Exit" \
+    2 "Manage sshd_config Settings" \
+    3 "Exit" \
     2>&1 >/dev/tty)
 
   clear
   case "$choice" in
     1) add_ssh_key ;;
-    2) dialog --msgbox "Exiting SSH Key Manager." 8 50; clear; exit 0 ;;
+    2) manage_sshd_config ;;
+    3) dialog --msgbox "Exiting SSH Key Manager." 8 50; clear; exit 0 ;;
     *) dialog --msgbox "Invalid option. Please try again." 8 50 ;;
   esac
 done
