@@ -4,24 +4,39 @@ FROM ubuntu:24.04
 # Set non-interactive mode for apt-get to avoid prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Update and install required dependencies
+# Install systemd and other required dependencies
 RUN apt-get update && apt-get install -y \
+    systemd \
+    systemd-sysv \
     build-essential \
-    nodejs \
-    dialog \
-    fzf \
+    net-tools \
+    iproute2 \
+    iputils-ping \
+    wget \
     curl \
-    bash \
-    unzip \
+    grep \
+    nano \
+    fzf \
+    dialog \
+    vim \
+    htop \
     sudo \
+    unzip \
     openssh-server \
-    adduser \ 
+    adduser \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Default command
-CMD ["bash"]
+# Configure SSH
+RUN mkdir /var/run/sshd && \
+    echo 'root:root' | chpasswd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    echo "export VISIBLE=now" >> /etc/profile
 
-# docker build -t ubuntu-custom .
-# Interactive mode
-# docker run -it ubuntu-custom bash
+# Expose SSH port
+EXPOSE 22
+
+# Start systemd as the init system
+STOPSIGNAL SIGRTMIN+3
+CMD ["/lib/systemd/systemd"]
