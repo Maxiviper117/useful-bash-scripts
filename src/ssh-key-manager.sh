@@ -27,7 +27,7 @@ EXCLUDED_USERS=("root" "ubuntu" "nobody")
 
 # Function to log actions
 log_action() {
-  echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >>"$LOG_FILE"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
 }
 
 # Function to handle SIGINT (Ctrl+c)
@@ -46,7 +46,7 @@ check_and_install_packages() {
   missing_packages=()
 
   for package in "${required_packages[@]}"; do
-    if ! dpkg -l | grep -qw "$package"; then
+    if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
       missing_packages+=("$package")
     fi
   done
@@ -148,7 +148,7 @@ add_ssh_key() {
     dialog --msgbox "The SSH key already exists for '$username'." 8 50
     log_action "SSH key already exists for user '$username'."
   else
-    echo "$ssh_key" >>"$authorized_keys"
+    echo "$ssh_key" >> "$authorized_keys"
     chown -R "$username":"$username" "$ssh_dir"
     dialog --msgbox "SSH key added successfully for '$username'." 8 50
     log_action "SSH key added for user '$username'."
@@ -214,7 +214,7 @@ manage_sshd_config() {
             echo "PermitRootLogin $new_value" >> "$config_file"
           fi
           log_action "Updated PermitRootLogin to $new_value"
-          dialog --msgbox "PermitRootLogin updated to '$new_value'." 8 50
+          dialog --msgbox "PermitRootLogin updated to '$new_value'.\n\nPlease restart the SSH service to apply changes." 10 60
         fi
         ;;
       2)
@@ -231,8 +231,7 @@ manage_sshd_config() {
             current_value="yes"
             log_action "Set default PasswordAuthentication to 'yes' as it was not previously set."
           else
-            # If the value is set to something else, you might want to handle it
-            # For simplicity, we'll set it to 'yes'
+            # If the value is set to something else, set it to 'yes'
             default_value="yes"
             sed -i "s/^\s*PasswordAuthentication.*/PasswordAuthentication yes/" "$config_file"
             current_value="yes"
@@ -255,39 +254,13 @@ manage_sshd_config() {
             echo "PasswordAuthentication $new_value" >> "$config_file"
           fi
           log_action "Updated PasswordAuthentication to $new_value"
-          dialog --msgbox "PasswordAuthentication updated to '$new_value'." 8 50
+          dialog --msgbox "PasswordAuthentication updated to '$new_value'.\n\nPlease restart the SSH service to apply changes." 10 60
         fi
         ;;
       3) break ;;
       *) dialog --msgbox "Invalid option. Please try again." 8 50 ;;
     esac
   done
-
-  # *** Begin: Conditional SSH Service Restart ***
-  # Check if sshd service is running
-  if systemctl is-active --quiet sshd; then
-    # Validate SSH configuration
-    sshd -t
-    if [ $? -eq 0 ]; then
-      # Restart SSH service to apply changes
-      systemctl restart sshd
-      if [ $? -eq 0 ]; then
-        log_action "sshd service restarted successfully."
-        dialog --msgbox "SSH service restarted successfully to apply changes." 8 50
-      else
-        log_action "Failed to restart sshd service."
-        dialog --msgbox "Failed to restart SSH service. Please check the configuration." 8 50
-      fi
-    else
-      log_action "Invalid SSH configuration. Changes not applied."
-      dialog --msgbox "Invalid SSH configuration. Please review the changes." 8 50
-    fi
-  else
-    # SSH service is not running; do not attempt to restart
-    log_action "sshd service is not running. Skipped restart."
-    dialog --msgbox "sshd service is not running. Skipped restart." 8 50
-  fi
-  # *** End: Conditional SSH Service Restart ***
 }
 
 # Ensure required packages are installed
@@ -296,7 +269,7 @@ check_and_install_packages
 # Main menu
 while true; do
   choice=$(dialog --clear --backtitle "SSH Key Manager" --title "Main Menu" \
-    --nocancel --menu "Choose an action:\nManage SSH keys for users easily.\n\nPress Ctrl+c to exit immediately." 20 70 3 \
+    --nocancel --menu "Choose an action:\nManage SSH keys and configurations easily.\n\nPress Ctrl+c to exit immediately." 20 70 3 \
     1 "Add SSH Key to User" \
     2 "Manage sshd_config Settings" \
     3 "Exit" \
@@ -306,7 +279,13 @@ while true; do
   case "$choice" in
     1) add_ssh_key ;;
     2) manage_sshd_config ;;
-    3) dialog --msgbox "Exiting SSH Key Manager." 8 50; clear; exit 0 ;;
-    *) dialog --msgbox "Invalid option. Please try again." 8 50 ;;
+    3) 
+      dialog --msgbox "Exiting SSH Key Manager." 8 50
+      clear
+      exit 0 
+      ;;
+    *) 
+      dialog --msgbox "Invalid option. Please try again." 8 50 
+      ;;
   esac
 done
