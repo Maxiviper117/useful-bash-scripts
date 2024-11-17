@@ -50,3 +50,7 @@ docker exec -it ubuntu_container bash
 ```
 
 You can now safely test your scripts within the container environment.
+
+### Note
+
+The bash scripts inside the container can be found in the `/testSrc` folder.
